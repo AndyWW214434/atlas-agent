@@ -1,0 +1,12 @@
+# Private: never commit
+data/
+.venv/
+.claude/
+
+# Build output
+deploy/hf/
+deploy/static/
+
+__pycache__/
+*.pyc
+.DS_Store

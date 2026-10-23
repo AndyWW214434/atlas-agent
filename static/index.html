@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atlas</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2334322d'/%3E%3Cpath d='M9 22V11l7 7 7-7v11' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/theme.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-top">
+      <a class="brand" href="/" data-nav="home"><span class="brand-mark"></span><span class="wordmark">atlas</span></a>
+      <div class="sb-top-right">
+        <button class="icon-btn" id="sb-search-btn" title="Search tasks"></button>
+        <button class="icon-btn" id="sb-collapse" title="Close sidebar"></button>
+      </div>
+    </div>
+    <div class="sb-search" id="sb-search" hidden><input id="search-input" placeholder="Search tasks"></div>
+    <nav class="sb-nav">
+      <button class="nav-item" data-nav="home" id="new-task"><span class="ni" data-icon="pen"></span>New task</button>
+      <button class="nav-item" data-nav="library"><span class="ni" data-icon="library"></span>Library</button>
+      <button class="nav-item" data-nav="automations"><span class="ni" data-icon="automation"></span>Automations</button>
+      <button class="nav-item" data-nav="plugins"><span class="ni" data-icon="grid"></span>Plugins</button>
+      <div class="more-wrap">
+        <button class="nav-item" id="more-btn"><span class="ni" data-icon="dots"></span>More</button>
+        <div class="pop more-menu" id="more-menu" hidden>
+          <button class="pop-item" data-more="logins"><span class="ni" data-icon="lock"></span>Saved logins</button>
+          <button class="pop-item" data-more="usage"><span class="ni" data-icon="chart"></span>Usage</button>
+          <button class="pop-item" data-more="theme"><span class="ni" data-icon="moon"></span><span id="theme-label">Dark mode</span></button>
+        </div>
+      </div>
+    </nav>
+    <div class="sb-scroll">
+      <div class="sb-label">Projects</div>
+      <div id="project-list"></div>
+      <button class="nav-item" id="new-project"><span class="ni" data-icon="folderPlus"></span>New project</button>
+      <div class="sb-label">Tasks</div>
+      <div class="task-list" id="task-list"></div>
+    </div>
+    <div class="sb-user">
+      <span class="avatar" id="user-avatar">A</span><span class="user-name" id="user-name"></span>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="vault-btn" title="Saved logins"></button>
+      <span id="model-tag" hidden></span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn sb-open" id="sb-open" title="Open sidebar"></button>
+      <div class="model-switch">
+        <button class="model-switch-btn" id="model-btn"></button>
+        <div class="pop model-pop" id="model-pop" hidden></div>
+      </div>
+      <div class="topbar-title" id="topbar-title"></div>
+      <div class="top-right">
+        <div class="plan-pill"><span id="plan-name">Free plan</span><span class="sep"></span><button id="upgrade-btn">Upgrade</button></div>
+        <div class="credit-wrap">
+          <button class="credit-btn" id="credit-btn"><span class="ni" data-icon="spark"></span><span id="credit-count">–</span></button>
+          <div class="pop credit-pop" id="credit-pop" hidden></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Home -->
+    <section class="view home2" id="home">
+      <div class="home2-inner">
+        <div class="key-warning" id="key-warning" hidden>Set <code>ANTHROPIC_API_KEY</code> in the server's environment to run tasks.</div>
+        <div class="hero-brand" id="hero-brand"><span class="hero-mark"></span><span class="hero-word">atlas</span></div>
+        <div class="home-cards" id="home-cards">
+          <div class="home-col">
+            <button class="hcard" data-start="build">
+              <span class="hcard-icon build"></span>
+              <span class="hcard-title">Build <span class="chev-r"></span></span>
+              <span class="hcard-sub">Websites, apps, and games</span>
+              <span class="hcard-art art-circle"></span>
+            </button>
+            <button class="hcard" data-start="create">
+              <span class="hcard-icon create"></span>
+              <span class="hcard-title">Create <span class="chev-r"></span></span>
+              <span class="hcard-sub">Slides, documents, spreadsheets, and charts</span>
+              <span class="hcard-art art-sheets"></span>
+            </button>
+          </div>
+          <button class="hcard tall" id="local-file-card">
+            <span class="folder-art"></span>
+            <span class="hcard-title center">Start from a local file</span>
+            <span class="hcard-sub center">Upload files to your Library and use them in a task</span>
+          </button>
+          <input type="file" id="local-file-input" multiple hidden>
+        </div>
+        <div class="home-panel" id="home-panel" hidden></div>
+        <div class="composer-dock"><div class="composer composer2" id="home-composer"></div></div>
+      </div>
+    </section>
+
+    <!-- Task -->
+    <section class="view task" id="task" hidden>
+      <div class="chat-col">
+        <header class="task-header">
+          <div class="task-title" id="task-title"></div>
+          <div class="task-actions">
+            <button class="ghost-btn" id="files-btn"><span class="ic"></span>Files</button>
+            <button class="icon-btn" id="computer-btn" title="Show computer"></button>
+          </div>
+        </header>
+        <div class="timeline-scroll" id="timeline-scroll">
+          <div class="timeline" id="timeline"></div>
+        </div>
+        <div class="bottom">
+          <div class="plan-card" id="plan-card" hidden></div>
+          <div class="composer composer2" id="task-composer"></div>
+        </div>
+      </div>
+
+      <aside class="computer" id="computer" hidden>
+        <div class="cp-head">
+          <div class="cp-title" id="cp-title">Atlas's Computer</div>
+          <button class="icon-btn" id="cp-close" title="Close"></button>
+        </div>
+        <div class="cp-status" id="cp-status"></div>
+        <div class="cp-window">
+          <div class="cp-window-bar" id="cp-bar"></div>
+          <div class="cp-body" id="cp-body"></div>
+        </div>
+        <div class="cp-controls">
+          <button class="icon-btn sm" id="cp-prev" title="Previous step"></button>
+          <button class="icon-btn sm" id="cp-next" title="Next step"></button>
+          <input type="range" id="cp-slider" min="0" max="0" value="0">
+          <button class="live-btn" id="cp-live"><span class="dot"></span><span class="txt">live</span></button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="view page" id="library" hidden></section>
+    <section class="view page" id="automations" hidden></section>
+    <section class="view page" id="plugins" hidden></section>
+    <section class="view page" id="project" hidden></section>
+    <section class="view page" id="usage" hidden></section>
+  </main>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><div class="modal-title" id="modal-title"></div><div class="modal-actions" id="modal-actions"></div></div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/markdown.js"></script>
+<script src="/static/logos.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
