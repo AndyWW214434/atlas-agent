@@ -533,8 +533,8 @@ class Task:
             if block.name == "shell":
                 async def on_output(text):
                     if ev:
-                        self.append(ev, "output", text)
-                out = await T.run_shell(self.workspace, args["command"], args.get("timeout"), on_output)
+                        self.append(ev, "output", T.redact(text))
+                out = T.redact(await T.run_shell(self.workspace, args["command"], args.get("timeout"), on_output))
                 if ev:
                     self.update(ev, status="done", output=out)
                 return result(out)

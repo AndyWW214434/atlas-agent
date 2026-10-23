@@ -1,6 +1,9 @@
 """Client-side tools the agent can call. Every path is confined to the task workspace."""
 
 import asyncio
+import getpass
+import os
+import re
 import base64
 from pathlib import Path
 
@@ -12,6 +15,14 @@ def truncate(text: str, limit: int = MAX_OUTPUT) -> str:
         return text
     half = limit // 2
     return f"{text[:half]}\n\n... [{len(text) - limit} characters truncated] ...\n\n{text[-half:]}"
+
+
+_REDACT = re.compile(rf"\b{re.escape(getpass.getuser())}\b") if os.environ.get("ATLAS_REDACT_USER") == "1" else None
+
+
+def redact(text: str) -> str:
+    """With ATLAS_REDACT_USER=1 (for screen recordings and demos), hide the OS username in shell output."""
+    return _REDACT.sub("user", text) if _REDACT else text
 
 
 def resolve(workspace: Path, path: str) -> Path:
