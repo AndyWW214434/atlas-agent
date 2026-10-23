@@ -6,6 +6,11 @@ watch it work live, then hands you the results. Powered by Claude.
 **[▶ Try the live demo](https://andyww12345-atlas-demo.static.hf.space)** (read-only: open the example task in the
 sidebar to watch a recorded run play back step by step).
 
+![Atlas building a website from one sentence: it plans, writes the code, checks the site in its own browser at desktop and phone sizes, and hands over the result](docs/atlas-demo.gif)
+
+*Sped up. **[▶ Watch the full run in real time](docs/atlas-demo.webm)** (about 2½ minutes, no sound): one sentence in,
+a finished landing page out, on Claude Haiku 5.5 for about 2 cents.*
+
 ## What it can do
 
 - **Do tasks end to end:** research with cited sources, data analysis, writing, coding, websites and documents. The
@@ -64,6 +69,18 @@ This writes `deploy/static/`: the full interface plus the chosen tasks, with bro
 username removed (the script refuses to finish if any remain). Upload that folder to any static host, such as a free
 Hugging Face **static** Space, GitHub Pages or Netlify. `deploy/build_hf.py` builds a Docker version of the same
 read-only demo, for hosts that run containers.
+
+## Record your own demo video
+
+```bash
+ATLAS_REDACT_USER=1 ATLAS_DATA=/Users/Shared/atlas-demo-data ATLAS_USER_NAME=Demo PORT=7863 ./run.sh
+.venv/bin/python deploy/record_demo.py http://127.0.0.1:7863 docs
+```
+
+The first line starts a separate Atlas with empty data, so none of your own tasks appear on screen.
+`ATLAS_REDACT_USER=1` hides your computer's username in terminal output, and the data folder sits outside your home
+folder so file paths don't show it either. `record_demo.py` runs one real task (billed to your API key) and writes
+`docs/atlas-demo.webm` plus a sped-up `docs/atlas-demo.gif`.
 
 ## How it works
 
