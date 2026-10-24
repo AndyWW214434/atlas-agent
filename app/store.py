@@ -45,6 +45,14 @@ def user_dir(uid: str | None = None) -> Path:
     return d
 
 
+def supabase_url() -> str:
+    """The project's base URL, even if it was pasted with a path such as /rest/v1/ on the end."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit((os.environ.get("SUPABASE_URL") or "").strip())
+    return f"{parts.scheme}://{parts.netloc}" if parts.netloc else ""
+
+
 def _copy(obj):
     return json.loads(json.dumps(obj))
 
@@ -57,7 +65,7 @@ def db():
     if _client is None:
         from supabase import create_client
 
-        _client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SECRET_KEY"])
+        _client = create_client(supabase_url(), os.environ["SUPABASE_SECRET_KEY"].strip())
     return _client
 
 

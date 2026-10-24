@@ -11,8 +11,10 @@ import time
 import httpx
 import jwt
 
-URL = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
-PUBLISHABLE = os.environ.get("SUPABASE_PUBLISHABLE_KEY") or ""
+from .store import supabase_url
+
+URL = supabase_url()
+PUBLISHABLE = (os.environ.get("SUPABASE_PUBLISHABLE_KEY") or "").strip()
 ACCESS, REFRESH = "atlas_at", "atlas_rt"
 _jwks = jwt.PyJWKClient(f"{URL}/auth/v1/.well-known/jwks.json", cache_keys=True, lifespan=3600) if URL else None
 _checked: dict[str, tuple[dict, float]] = {}  # tokens verified by asking Supabase (legacy HS256 projects)
