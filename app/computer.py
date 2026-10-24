@@ -86,6 +86,8 @@ MAX_SYNC_BYTES = 20_000_000  # bigger files stay in the sandbox only
 HOME = "/home/user"
 WS = f"{HOME}/workspace"
 STATE = f"{HOME}/.atlas/browser_state.json"
+# Template build-time environment doesn't reach processes started later, so pass it to each command.
+ENV = {"PLAYWRIGHT_BROWSERS_PATH": "/opt/ms-playwright", "PYTHONUNBUFFERED": "1"}
 _active: set[str] = set()  # tasks whose sandbox is currently running
 
 
@@ -162,7 +164,7 @@ class CloudComputer:
         # "[a]pp" so pkill doesn't match (and kill) the shell running this very command
         await self.sbx.commands.run("pkill -f '[a]pp.sandbox_helper' || true", timeout=15)
         await self.sbx.commands.run("python3 -m app.sandbox_helper", background=True, cwd="/opt/atlas",
-                                    envs={"ATLAS_HELPER_KEY": key, "ATLAS_WORKSPACE": WS, "ATLAS_STATE": f"{HOME}/.atlas",
+                                    envs={**ENV, "ATLAS_HELPER_KEY": key, "ATLAS_WORKSPACE": WS, "ATLAS_STATE": f"{HOME}/.atlas",
                                           "ATLAS_DATA": f"{HOME}/.atlas"}, timeout=0)
         self.http = httpx.AsyncClient(base_url=url, timeout=120, headers=self._headers(key))
         for _ in range(60):
@@ -258,7 +260,8 @@ class CloudComputer:
             chunks.append(text)
             await on_output(text)
 
-        handle = await sbx.commands.run(command, background=True, cwd=WS, on_stdout=out, on_stderr=out, timeout=timeout + 30)
+        handle = await sbx.commands.run(command, background=True, cwd=WS, envs=ENV, on_stdout=out, on_stderr=out,
+                                        timeout=timeout + 30)
         try:
             code = (await asyncio.wait_for(handle.wait(), timeout)).exit_code
         except CommandExitException as e:
