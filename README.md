@@ -51,10 +51,57 @@ All tasks are billed to **your** API key. The default model is Claude Haiku 5.5,
 
 ## ⚠️ Safety
 
-Atlas runs shell commands and a browser **on the computer it is installed on, as your user. They are not sandboxed.**
-Run it on your own machine for yourself, and only give it tasks you'd be comfortable running yourself. Don't expose it
-to the internet: it has no user accounts, so anyone who can reach it could run commands on your machine and spend your
-API key. To let others try it, publish a read-only demo instead (below).
+Run locally (`./run.sh`), Atlas runs shell commands and a browser **on the computer it is installed on, as your user.
+They are not sandboxed.** Run it on your own machine for yourself, and only give it tasks you'd be comfortable running
+yourself. Don't expose a local install to the internet: it has no user accounts, so anyone who can reach it could run
+commands on your machine and spend your API key. To let other people use Atlas, deploy it in cloud mode (below), where
+everyone signs in and every task runs in its own sandbox, or publish a read-only demo.
+
+## Deploy to the cloud (accounts, sandboxes, spend limits)
+
+In cloud mode, people create an account and each task runs on its own **E2B sandbox**: a small Linux VM in the cloud
+with a terminal, files and Chromium. It pauses between messages and resumes where it left off. Accounts, tasks,
+settings and saved logins live in **Supabase** (Postgres, Auth, Storage), and the web app and API run on **Render**.
+AI usage is billed to your Anthropic key, within limits you set:
+
+- every account gets `ATLAS_USER_DAILY_CREDITS` a day (default 100 ≈ $1), with no plans or top-ups;
+- all accounts together stop at `ATLAS_GLOBAL_DAILY_CREDITS` a day (default 1000 ≈ $10);
+- at most `ATLAS_MAX_SANDBOXES` tasks run at once (default 5), and one per person;
+- a question the agent asks expires after 30 minutes, so no sandbox waits around for an answer.
+
+Also set a monthly spend limit for the key in the [Anthropic Console](https://console.anthropic.com/) as a final backstop.
+
+**1. Supabase** ([supabase.com](https://supabase.com), free plan)
+- Create a project. In **SQL Editor**, paste and run [`supabase/schema.sql`](supabase/schema.sql): it creates the tables
+  (locked with Row Level Security, so only the server can use them) and a private storage bucket.
+- **Authentication → URL Configuration**: set **Site URL** to your Render address (step 3), e.g.
+  `https://atlas-xxxx.onrender.com`, so confirmation emails link back to your app.
+- **Authentication → Emails**: Supabase's built-in email sender only delivers to your own team's addresses and a few
+  emails an hour. For sign-ups from anyone, add a free SMTP provider under **SMTP Settings** (e.g. Resend or Brevo),
+  or switch off **Confirm email** under **Sign In / Providers** (simpler, but anyone can sign up with any address).
+- **Project Settings → API Keys**: copy the **publishable** key and a **secret** key. The secret key only ever goes
+  into Render's settings, never into the web page or git.
+
+**2. E2B** ([e2b.dev](https://e2b.dev), free Hobby plan with starter credits)
+- Copy your API key, then build the sandbox template once (a few minutes, runs in E2B's cloud):
+
+```bash
+.venv/bin/pip install e2b
+E2B_API_KEY=e2b_... .venv/bin/python deploy/e2b_template.py
+```
+
+**3. Render** ([render.com](https://render.com), free plan)
+- Push this repo to your GitHub, then **New → Blueprint** and pick it. [`render.yaml`](render.yaml) sets up a Docker
+  web service and asks for the secrets: `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+  `SUPABASE_SECRET_KEY`, `E2B_API_KEY`, and `ATLAS_VAULT_KEY` (encrypts saved logins; generate one with
+  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and keep a copy:
+  losing it makes saved logins unreadable).
+- When it's live, put its address into Supabase's Site URL (step 1) and sign up.
+
+Free tiers have limits: Render's free service sleeps after 15 minutes without visitors (the next visit takes about a
+minute, and scheduled automations don't run while it sleeps), a free Supabase project pauses after a week without
+activity, and E2B's Hobby credits are used per second while a sandbox runs (paused sandboxes don't use them).
+[`.env.example`](.env.example) lists every setting.
 
 ## Publish a read-only demo
 
@@ -93,11 +140,16 @@ folder so file paths don't show it either. `record_demo.py` runs one real task (
 | `app/features.py` | Library, projects, automations, plugins (MCP connectors), credits |
 | `app/vault.py` | Encrypted saved logins and connector tokens (key kept in the system keychain) |
 | `app/media.py` | Renders HTML to PNG or video with headless Chrome (Design and Video tasks) |
+| `app/computer.py` | Where tools run: this machine (local mode) or the task's E2B sandbox (cloud mode) |
+| `app/sandbox_helper.py` | Runs inside each sandbox: file tools, the Chrome browser and its live view |
+| `app/store.py` | Storage: JSON files under `data/` (local), or Supabase Postgres and Storage per user (cloud) |
+| `app/auth.py` | Cloud sign-up and sign-in through Supabase Auth, kept in httpOnly cookies |
 | `static/` | The web app: plain HTML/CSS/JS, no build step |
-| `deploy/` | Scripts that build the read-only demo (static site or Docker) |
+| `supabase/schema.sql`, `Dockerfile`, `render.yaml` | Cloud deployment |
+| `deploy/` | The E2B sandbox template, and scripts that build the read-only demo (static site or Docker) |
 
-Everything you create lives in `data/`, which is never committed: tasks and their files, Library uploads, saved
-logins and browser cookies.
+Run locally, everything you create lives in `data/`, which is never committed: tasks and their files, Library uploads,
+saved logins and browser cookies.
 
 ## License
 

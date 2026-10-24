@@ -1,0 +1,9 @@
+.git
+.venv
+.claude
+.env
+data
+deploy
+docs
+supabase
+**/__pycache__

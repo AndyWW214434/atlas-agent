@@ -1,20 +1,18 @@
 """Agent loop, task state, persistence, and the live event bus."""
 
 import asyncio
-import shlex
-import sys
 import json
 import os
 import time
 import uuid
 from datetime import date
-from pathlib import Path
 
 import anthropic
 
+from . import computer as C
+from . import store
 from . import tools as T
 from . import features as F
-from .browser import Browser
 
 # Models offered in the UI's model picker. Effort is the per-model default unless AGENT_EFFORT is set.
 MODELS = [
@@ -33,13 +31,11 @@ DYNAMIC_FILTER_MODELS = {"claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", 
                          "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6"}
 FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
 AGENT_NAME = "Atlas"
-DATA_DIR = Path(os.environ.get("ATLAS_DATA") or Path(__file__).resolve().parent.parent / "data") / "tasks"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 MAX_ITERATIONS = 80
+ASK_TIMEOUT = 30 * 60 if store.CLOUD else None  # cloud: don't keep a sandbox running for an unanswered question
 
 
 # Build / Create modes chosen on the home screen. Each adds focused instructions for that kind of deliverable.
-MEDIA_CMD = f"{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve().parent / 'media.py'))}"
 MODE_GUIDES = {
     "website": """Deliverable: a complete, polished, responsive website in site/ (index.html plus any css/js/assets; no build step unless the \
 user asks for a framework). Real copy, not lorem ipsum; accessible markup; works at phone and desktop widths. If the user gave an \
@@ -91,7 +87,18 @@ pauses between speakers), then convert: `afconvert -f m4af -d aac final.wav fina
 Sound effects or music loops: synthesize with numpy (envelopes, harmonics) and write WAV with the wave module. Follow the \
 Preferences line for the format.""",
 }
-MODE_GUIDES = {k: v.replace("{MEDIA}", MEDIA_CMD) for k, v in MODE_GUIDES.items()}
+# The cloud sandbox is Linux: no macOS voices, so speech comes from espeak-ng.
+AUDIO_LINUX = """Deliverable: audio files. Speech uses espeak-ng: list voices with `espeak-ng --voices=en` and use mbrola-free \
+variants such as en-us+f3, en-us+m3, en-gb+f2 at speed 150-165. Write the script first and save it as script.md. Render each line \
+or section to WAV with `espeak-ng -v VOICE -s 160 -w part_N.wav -f part_N.txt`, join parts in order with Python's wave module (add \
+short pauses between speakers), then convert: `ffmpeg -y -i final.wav -c:a aac final.m4a`. For a podcast, alternate two distinct \
+voices. Sound effects or music loops: synthesize with numpy (envelopes, harmonics) and write WAV with the wave module. Follow the \
+Preferences line for the format."""
+
+
+def mode_guide(mode: str, computer) -> str:
+    text = AUDIO_LINUX if mode == "audio" and computer.cloud else MODE_GUIDES[mode]
+    return text.replace("{MEDIA}", computer.media_cmd)
 
 client = anthropic.AsyncAnthropic()
 
@@ -132,13 +139,15 @@ def request_options(model: str) -> dict:
     return opts
 
 
-def system_prompt(workspace: Path, project_instructions: str = "", mode: str = "") -> str:
+def system_prompt(computer, project_instructions: str = "", mode: str = "") -> str:
     project = f"\n\nProject instructions from the user (apply them to this task):\n{project_instructions}" if project_instructions else ""
-    guide = f"\n\nThis task's type ({mode}):\n{MODE_GUIDES[mode]}" if mode in MODE_GUIDES else ""
-    return _base_prompt(workspace) + guide + project
+    guide = f"\n\nThis task's type ({mode}):\n{mode_guide(mode, computer)}" if mode in MODE_GUIDES else ""
+    where = ("\nYour computer is a private Linux cloud sandbox (Debian, Python 3, Chromium); install packages with pip or apt "
+             "(sudo works) as needed." if computer.cloud else "")
+    return _base_prompt(computer.workspace) + where + guide + project
 
 
-def _base_prompt(workspace: Path) -> str:
+def _base_prompt(workspace: str) -> str:
     return f"""You are {AGENT_NAME}, an autonomous general AI agent. You complete tasks end to end on the user's behalf: research, \
 data analysis, writing, coding, building websites and documents. You work in a private workspace with a shell, a file system, \
 a real web browser, and web search/fetch.
@@ -168,10 +177,11 @@ The user sees every file you create and can download it.
 
 
 class Task:
-    def __init__(self, task_id: str, data: dict | None = None):
+    def __init__(self, task_id: str, data: dict | None = None, user_id: str | None = None):
         self.id = task_id
-        self.dir = DATA_DIR / task_id
-        self.workspace = self.dir / "workspace"
+        self.user_id = user_id  # owner in cloud mode
+        self.dir = store.tasks_dir(user_id) / task_id
+        self.workspace = self.dir / "workspace"  # cloud mode: a local copy of the sandbox's files
         self.shots = self.dir / "shots"
         data = data or {}
         self.title: str = data.get("title", "New task")
@@ -185,6 +195,10 @@ class Task:
         self.project_instructions: str = data.get("project_instructions", "")
         self.credits_used: float = data.get("credits_used", 0.0)
         self.mode: str = data.get("mode", "")
+        self.files: dict = data.get("files", {})  # cloud: path -> {size, mtime} of files copied out of the sandbox
+        self.sandbox_id: str | None = data.get("sandbox_id")
+        self.helper_key: str = data.get("helper_key", "")
+        self.attachments: list[str] = []
         self.status: str = "idle" if data.get("status") == "running" else data.get("status", "idle")
         self.subscribers: set[asyncio.Queue] = set()
         self.runner: asyncio.Task | None = None
@@ -192,21 +206,20 @@ class Task:
         for e in self.events:  # a restart loses the waiting run, so open questions can no longer be answered
             if e["type"] == "ask" and e.get("status") == "pending":
                 e["status"] = "expired"
-        self.browser = Browser(self.dir, self.workspace, self._frame)
+        self.computer = C.make(self)
 
     # --- persistence -------------------------------------------------------
 
     def save(self):
-        self.dir.mkdir(parents=True, exist_ok=True)
         payload = {
             "id": self.id, "title": self.title, "created": self.created, "updated": self.updated,
             "status": self.status, "plan": self.plan, "model": self.model, "messages": self.messages, "events": self.events,
             "project_id": self.project_id, "project_instructions": self.project_instructions, "credits_used": self.credits_used,
             "mode": self.mode,
         }
-        tmp = self.dir / "task.json.tmp"
-        tmp.write_text(json.dumps(payload))
-        tmp.replace(self.dir / "task.json")
+        if store.CLOUD:
+            payload |= {"files": self.files, "sandbox_id": self.sandbox_id, "helper_key": self.helper_key}
+        store.task_save(self.user_id, payload)
 
     def summary(self) -> dict:
         preview = next((e.get("text", "") for e in reversed(self.events) if e["type"] == "text" and e.get("text")), "")
@@ -263,6 +276,8 @@ class Task:
     # --- workspace ---------------------------------------------------------
 
     def list_files(self) -> list[dict]:
+        if store.CLOUD:
+            return [{"path": p, "size": f["size"], "mtime": f["mtime"]} for p, f in sorted(self.files.items())]
         if not self.workspace.exists():
             return []
         files = []
@@ -286,6 +301,7 @@ class Task:
         if not self.messages:
             self.title = (text.strip().splitlines() or ["New task"])[0][:60]
         self.messages.append({"role": "user", "content": content})
+        self.attachments = attachments
         self.add_event("user", text=text, attachments=attachments, model=self.model, mode=self.mode if not self.messages[:-1] else "")
         self.set_status("running")
         self.save()
@@ -313,10 +329,17 @@ class Task:
                 pass
 
     async def _run(self):
+        if self.user_id:
+            store.current_user.set(self.user_id)  # this asyncio task's own context
         before = {f["path"]: f["mtime"] for f in self.list_files()}
         try:
+            await self.computer.start(self.attachments)
             await self._loop()
             self.set_status("idle")
+        except C.Busy as e:
+            self._close_open_tool_turn(str(e))
+            self.add_event("error", text=str(e))
+            self.set_status("error")
         except asyncio.CancelledError:
             self._close_open_tool_turn("Stopped by the user.")
             self.add_event("notice", text="Task stopped.")
@@ -331,7 +354,10 @@ class Task:
             self.add_event("error", text=f"{type(e).__name__}: {e}")
             self.set_status("error")
         finally:
-            await self.browser.pause()
+            try:
+                await self.computer.pause()
+            except Exception as e:
+                self.add_event("notice", text=f"Could not save the computer's state: {type(e).__name__}")
             changed = [f for f in self.list_files() if before.get(f["path"]) != f["mtime"]]
             if changed:
                 self.add_event("files", files=changed)
@@ -355,7 +381,6 @@ class Task:
                 self.update(e, status="cancelled")
 
     async def _loop(self):
-        self.workspace.mkdir(parents=True, exist_ok=True)
         json_retries = 0
         for _ in range(MAX_ITERATIONS):
             if F.balance() <= 0:
@@ -408,7 +433,7 @@ class Task:
         async with client.beta.messages.stream(
             model=self.model,
             max_tokens=64000,
-            system=system_prompt(self.workspace.resolve(), self.project_instructions, self.mode),
+            system=system_prompt(self.computer, self.project_instructions, self.mode),
             messages=self.messages,
             cache_control={"type": "ephemeral"},
             **request_options(self.model),
@@ -513,14 +538,18 @@ class Task:
                 self.save()
                 try:
                     if args["kind"] == "handoff":
-                        await self.browser.open_view()
-                    reply = await waiter
+                        await self.computer.open_view()
+                    reply = await asyncio.wait_for(waiter, ASK_TIMEOUT)
+                except asyncio.TimeoutError:
+                    self.update(ask, status="expired")
+                    return result("The user did not answer within 30 minutes. Stop here and summarize what is left; "
+                                  "they can continue the task later.", True)
                 finally:
                     self.pending.pop(ask["id"], None)
                 self.update(ask, status="answered", answer=reply["answer"], note=reply["note"], label=reply.get("label", ""))
                 note = f" The user added: {reply['note']}" if reply["note"] else ""
                 if args["kind"] == "handoff":
-                    await self.browser.pause()  # persist the cookies from the login
+                    await self.computer.save_browser()  # persist the cookies from the login
                     return result("The user finished their part and handed the browser back. Take a snapshot to see the page." + note)
                 if args["kind"] == "credentials":
                     if reply["answer"] == "provided":
@@ -534,28 +563,24 @@ class Task:
                 async def on_output(text):
                     if ev:
                         self.append(ev, "output", T.redact(text))
-                out = T.redact(await T.run_shell(self.workspace, args["command"], args.get("timeout"), on_output))
+                out = T.redact(await self.computer.shell(args["command"], args.get("timeout"), on_output))
+                await self.computer.sync()
                 if ev:
                     self.update(ev, status="done", output=out)
                 return result(out)
-            if block.name == "write_file":
-                out = T.write_file(self.workspace, args["path"], args["content"])
-            elif block.name == "read_file":
-                out = T.read_file(self.workspace, args["path"], args.get("start_line"), args.get("end_line"))
-            elif block.name == "edit_file":
-                out = T.edit_file(self.workspace, args["path"], args["old_str"], args["new_str"])
-                if ev:
-                    try:
-                        self.update(ev, content=T.resolve(self.workspace, args["path"]).read_text()[:50_000])
-                    except OSError:
-                        pass
+            if block.name in ("write_file", "read_file", "edit_file"):
+                out, content = await self.computer.file_tool(block.name, args)
+                if block.name != "read_file":
+                    await self.computer.sync()
+                if ev and content is not None:
+                    self.update(ev, content=content)
             elif block.name == "browser":
-                summary, shot, meta = await self.browser.run(args)
+                summary, shot, meta = await self.computer.browser_run(args)
+                await self.computer.sync()  # downloads land in the workspace
                 fields = {"status": "done", "output": summary, "meta": meta}
                 if shot:
-                    self.shots.mkdir(parents=True, exist_ok=True)
                     name = f"{uuid.uuid4().hex[:10]}.jpg"
-                    (self.shots / name).write_bytes(shot)
+                    store.blob_put(f"tasks/{self.id}/shots/{name}", shot, self.user_id, "image/jpeg")
                     fields["image"] = f"/api/tasks/{self.id}/shots/{name}"
                 if ev:
                     self.update(ev, **fields)
@@ -580,17 +605,27 @@ class Task:
 
 
 class TaskStore:
+    """All tasks in memory. Local mode loads them at startup; cloud mode loads each user's tasks on first use."""
+
     def __init__(self):
         self.tasks: dict[str, Task] = {}
-        for path in DATA_DIR.glob("*/task.json"):
+        self.loaded: set[str | None] = set()
+        if not store.CLOUD:
+            self._load(None)
+
+    def _load(self, uid: str | None):
+        if uid in self.loaded:
+            return
+        for data in store.tasks_load(uid):
             try:
-                data = json.loads(path.read_text())
-                self.tasks[data["id"]] = Task(data["id"], data)
-            except (OSError, ValueError, KeyError):
+                if data["id"] not in self.tasks:
+                    self.tasks[data["id"]] = Task(data["id"], data, uid)
+            except (KeyError, TypeError):
                 continue
+        self.loaded.add(uid)
 
     def create(self, project_id: str | None = None, mode: str = "") -> Task:
-        task = Task(uuid.uuid4().hex[:12])
+        task = Task(uuid.uuid4().hex[:12], user_id=store.current_user.get())
         task.mode = mode if mode in MODE_GUIDES else ""
         proj = F.project(project_id)
         if proj:
@@ -600,15 +635,24 @@ class TaskStore:
         return task
 
     def get(self, task_id: str) -> Task | None:
-        return self.tasks.get(task_id)
+        """A task, only if it belongs to the signed-in user."""
+        uid = store.current_user.get()
+        self._load(uid)
+        task = self.tasks.get(task_id)
+        return task if task and task.user_id == uid else None
 
     def list(self) -> list[dict]:
-        return [t.summary() for t in sorted(self.tasks.values(), key=lambda t: t.updated, reverse=True) if t.messages]
+        uid = store.current_user.get()
+        self._load(uid)
+        mine = [t for t in self.tasks.values() if t.user_id == uid and t.messages]
+        return [t.summary() for t in sorted(mine, key=lambda t: t.updated, reverse=True)]
 
     async def delete(self, task_id: str):
-        task = self.tasks.pop(task_id, None)
+        task = self.get(task_id)
         if task:
+            self.tasks.pop(task_id, None)
             await task.stop()
-            await task.browser.close()
+            await task.computer.close()
+            store.task_delete(task.user_id, task_id)
             import shutil
             shutil.rmtree(task.dir, ignore_errors=True)

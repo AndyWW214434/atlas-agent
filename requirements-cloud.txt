@@ -1,0 +1,10 @@
+# The cloud web server (Render). The agent's browser runs inside E2B sandboxes, so no Playwright here.
+anthropic>=2.1
+fastapi
+uvicorn[standard]
+python-multipart
+cryptography
+httpx
+supabase>=2.33
+PyJWT[crypto]>=2.10
+e2b>=2.59
