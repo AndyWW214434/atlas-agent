@@ -529,3 +529,23 @@ svg.i.xs { width: 12px; height: 12px; vertical-align: -1px; }
 .demo-banner b { color: var(--link); }
 .replay-bar { display: flex; align-items: center; gap: 10px; margin: 0 auto 6px; padding: 6px 8px 6px 14px; border-radius: 999px; background: var(--soft); font-size: 13px; color: var(--text-2); }
 .replay-bar button { font-weight: 600; color: var(--link); padding: 2px 8px; }
+
+/* ---------- Sign-in (cloud mode) ---------- */
+.signin { position: fixed; inset: 0; z-index: 200; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; overflow-y: auto; }
+.signin-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 14px; }
+.signin-brand { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 18px; }
+.signin-brand .hero-mark { width: 48px; height: 48px; }
+.signin-brand .hero-word { font-size: 44px; }
+.signin-title { font-size: 22px; font-weight: 600; text-align: center; }
+.signin-sub { font-size: 14px; color: var(--text-2); text-align: center; margin: -6px 0 6px; line-height: 1.45; }
+.signin-card label { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; font-weight: 500; color: var(--text-2); }
+.signin-card input { font: inherit; font-size: 15px; color: var(--text); border: 1px solid var(--line); background: var(--card-2); border-radius: 10px; padding: 11px 12px; outline: none; }
+.signin-card input:focus { border-color: var(--text-2); }
+.signin-card .btn.dark { width: 100%; margin-top: 4px; }
+.signin-card .btn.dark:disabled { opacity: .6; }
+.signin-msg { font-size: 13.5px; line-height: 1.45; padding: 10px 12px; border-radius: 10px; background: var(--soft); color: var(--text); }
+.signin-msg.err { background: #fdecec; color: #a12020; }
+:root[data-theme="dark"] .signin-msg.err { background: #3a2222; color: #f3b4b4; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .signin-msg.err { background: #3a2222; color: #f3b4b4; } }
+.signin-switch { font-size: 13.5px; color: var(--text-2); text-align: center; padding: 6px; }
+.signin-switch:hover { color: var(--text); text-decoration: underline; }

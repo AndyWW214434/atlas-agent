@@ -76,6 +76,7 @@
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
     lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/>',
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
     hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.4L3.4 16a2 2 0 0 1 3.2-2.4L8 15"/>',
   };
@@ -287,6 +288,15 @@
     if (!c) return;
     $("credit-count").textContent = c.balance.toLocaleString();
     $("plan-name").textContent = `${c.plan_name} plan`;
+    if (c.fixed) {  // cloud mode: one free daily allowance for everyone, no plans or top-ups
+      $("credit-pop").innerHTML = `
+      <div class="cr-head"><span class="cr-plan">${esc(c.plan_name)}</span></div>
+      <div class="cr-row"><span class="lbl">${icon("calendar")}Daily credits <span class="q" title="A free daily allowance. 1 credit is about $0.01 of AI usage.">?</span></span><span>${c.daily_left.toLocaleString()}</span></div>
+      <div class="cr-sub"><span>Refresh to ${c.daily.toLocaleString()} at 00:00 (server time) every day</span></div>
+      ${c.server_busy ? `<div class="cr-sub"><span>Atlas has reached today's limit for all users.</span></div>` : ""}
+      <button class="cr-link" data-usage>View usage ${icon("chevRight")}</button>`;
+      return;
+    }
     $("credit-pop").innerHTML = `
       <div class="cr-head"><span class="cr-plan">${esc(c.plan_name)}</span><button class="btn primary" data-upgrade>Upgrade</button></div>
       <div class="cr-row"><span class="lbl">${icon("spark")}Credits <span class="q" title="Top-up credits. Used after your daily credits run out.">?</span></span><span>${c.bonus.toLocaleString()}</span></div>
@@ -304,6 +314,7 @@
   $("upgrade-btn").onclick = () => openUpgrade();
   function openUpgrade() {
     const c = S.credits || { plans: {} };
+    if (c.fixed) return toast(`Everyone gets ${c.daily.toLocaleString()} free credits a day. They refresh at midnight.`);
     showModal("Plans", "", `
       <div class="form" style="max-width:none">
         <div class="hint" style="font-size:14px">This app runs on your own Claude API key. Credits are a local daily budget so tasks can't overspend: 1 credit ≈ $0.01 of AI usage. Changing plan here costs nothing; it just sets the budget.</div>
@@ -418,7 +429,9 @@
     };
     const renderTop = (what) => {
       if (what === "where") {
-        topPop.innerHTML = `<div style="padding:8px 10px;font-size:13.5px;line-height:1.5">Tasks run on <b>this Mac</b>: each gets its own workspace folder and its own isolated browser session.</div>`;
+        topPop.innerHTML = S.config.cloud
+          ? `<div style="padding:8px 10px;font-size:13.5px;line-height:1.5">Each task gets its own <b>cloud computer</b>: a private Linux sandbox with a terminal, files and a Chrome browser. It pauses between messages and picks up where it left off.</div>`
+          : `<div style="padding:8px 10px;font-size:13.5px;line-height:1.5">Tasks run on <b>this Mac</b>: each gets its own workspace folder and its own isolated browser session.</div>`;
         return;
       }
       topPop.innerHTML = `<button class="pop-item ${!projectId ? "on" : ""}" data-proj="">${icon("x")}No project</button>` +
@@ -599,7 +612,7 @@
       options: [{ key: "aspect", icon: "layout", value: "16:9", label: "Aspect ratio", choices: [["16:9", "Landscape · 1920×1080"], ["9:16", "Vertical · 1080×1920"], ["1:1", "Square · 1080×1080"]] },
         { key: "length", icon: "clock", value: "10 s", label: "Length", choices: [["5 s"], ["10 s"], ["15 s"], ["30 s"]] }] },
     { key: "audio", section: "Media", label: "Audio", art: "audio", chip: "Audio", icon: "audio", title: "Create audio", placeholder: "Describe the audio you want to create",
-      note: "Speech uses your Mac's built-in voices; sound effects and music loops are synthesized with code.",
+      get note() { return S.config.cloud ? "Speech uses a built-in text-to-speech voice (robotic, not studio quality); sound effects and music loops are synthesized with code." : "Speech uses your Mac's built-in voices; sound effects and music loops are synthesized with code."; },
       options: [{ key: "format", icon: "audio", value: "Narration", label: "Format", choices: [["Narration", "One voice reads your script"], ["Podcast", "Two hosts in conversation"], ["Sound effects", "Short synthesized sounds"], ["Music loop", "A simple synthesized loop"]] }] },
   ];
   const ALL_OPTIONS = BUILD_OPTIONS.concat(CREATE_OPTIONS);
@@ -973,6 +986,7 @@
     if (m === "logins") openVault();
     if (m === "usage") navigate("/usage");
     if (m === "theme") toggleTheme();
+    if (m === "signout") signOut();
   };
   function currentTheme() {
     const set = document.documentElement.dataset.theme;
@@ -1280,7 +1294,7 @@
               <input data-cred="username" placeholder="Username or email" autocomplete="off" spellcheck="false">
               <input data-cred="password" type="password" placeholder="Password" autocomplete="new-password">
               <div class="ask-actions"><button class="btn primary" data-cred-save="${ev.id}">Save and continue</button><button class="btn" data-ask="${ev.id}" data-answer="declined">Cancel</button></div>
-              <div class="ask-hint">${icon("lock")} Stored encrypted on this computer (key in your system keychain). ${esc(S.config.agent)} types it into the sign-in page for you, but never sees it, and the AI model never receives it. Manage saved logins with the lock button in the sidebar.</div>
+              <div class="ask-hint">${icon("lock")} ${S.config.cloud ? "Stored encrypted in your account." : "Stored encrypted on this computer (key in your system keychain)."} ${esc(S.config.agent)} types it into the sign-in page for you, but never sees it, and the AI model never receives it. Manage saved logins with the lock button in the sidebar.</div>
             </div>`;
         } else if (pending) {
           foot = handoff
@@ -1387,7 +1401,7 @@
       <div class="file-row" style="cursor:default"><div class="fc-icon" style="background:#475569">${icon("lock")}</div>
         <div class="fc-main" style="flex:1"><div class="fc-name">${esc(v.label)}</div><div class="fc-meta">${esc(v.username)} · password hidden</div></div>
         <button class="btn sm" data-vault-del="${esc(v.id)}">Delete</button></div>`).join("") +
-      `<div class="ask-hint" style="padding:14px 20px">Passwords are encrypted on this computer and can't be viewed here, only deleted.</div>` :
+      `<div class="ask-hint" style="padding:14px 20px">Passwords are encrypted ${S.config.cloud ? "in your account" : "on this computer"} and can't be viewed here, only deleted.</div>` :
       `<div class="cp-empty">No saved logins yet. When a task needs you to sign in, ${esc(S.config.agent)} will ask.</div>`);
   }
   $("vault-btn").onclick = openVault;
@@ -1960,7 +1974,7 @@
   function connectDialog(c) {
     showModal(c.custom ? "Custom connector" : `Connect ${c.name}`, "", `
       <div class="form">
-        <div class="hint" style="font-size:14px;line-height:1.55">Atlas connects to apps through <b>MCP servers</b>. Paste the MCP server URL${c.custom ? "" : ` for ${esc(c.name)}`} (from the service's developer settings, or a server you run). If it needs an access token, add it below; it's stored encrypted on this Mac and only sent to that server.</div>
+        <div class="hint" style="font-size:14px;line-height:1.55">Atlas connects to apps through <b>MCP servers</b>. Paste the MCP server URL${c.custom ? "" : ` for ${esc(c.name)}`} (from the service's developer settings, or a server you run). If it needs an access token, add it below; it's stored encrypted ${S.config.cloud ? "in your account" : "on this Mac"} and only sent to that server.</div>
         ${c.custom ? `<label>Name<input id="cn-name" placeholder="e.g. Company wiki"></label><label>Description<input id="cn-desc" placeholder="What can Atlas do with it?"></label>` : ""}
         <label>MCP server URL<input id="cn-url" placeholder="https://…/mcp" spellcheck="false"></label>
         <label>Access token <span class="hint">Optional</span><input id="cn-token" type="password" autocomplete="new-password" spellcheck="false"></label>
@@ -2085,6 +2099,57 @@
     if (e.key === "Escape") { closePops(); if (!$("modal").hidden) closeModal(); }
   });
 
+  // ---------- Accounts (cloud mode) ----------
+  let signupMode = false;
+  function showSignin(msg, isError) {
+    if (S.es) { S.es.close(); S.es = null; }
+    $("signin").hidden = false;
+    $("signin-title").textContent = signupMode ? "Create your account" : "Sign in";
+    $("signin-submit").textContent = signupMode ? "Create account" : "Sign in";
+    $("signin-switch").textContent = signupMode ? "Already have an account? Sign in" : "New here? Create an account";
+    $("signin-password").autocomplete = signupMode ? "new-password" : "current-password";
+    const m = $("signin-msg");
+    m.hidden = !msg;
+    m.textContent = msg || "";
+    m.className = `signin-msg ${isError ? "err" : ""}`;
+    setTimeout(() => $("signin-email").focus(), 0);
+  }
+  window.addEventListener("atlas:signin", () => { if (S.config?.cloud) showSignin("Your session ended. Please sign in again."); });
+  $("signin-switch").onclick = () => { signupMode = !signupMode; showSignin(); };
+  $("signin-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = $("signin-submit");
+    btn.disabled = true;
+    try {
+      const r = await api(signupMode ? "/api/auth/signup" : "/api/auth/login",
+        { json: { email: $("signin-email").value, password: $("signin-password").value } });
+      if (r.confirm) {
+        signupMode = false;
+        showSignin("Almost there: we sent you an email. Click the link in it to confirm your address, then you're signed in.");
+      } else location.reload();
+    } catch (err) {
+      showSignin(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    location.href = "/";
+  }
+  // The email confirmation link lands here with the session in the address's #fragment: hand it to the server.
+  async function acceptEmailLink() {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (!h.get("access_token") && !h.get("error_description")) return false;
+    history.replaceState(null, "", location.pathname);
+    if (h.get("error_description")) { showSignin(h.get("error_description"), true); return true; }
+    try {
+      await api("/api/auth/session", { json: { access_token: h.get("access_token"), refresh_token: h.get("refresh_token"), expires_in: +h.get("expires_in") || 3600 } });
+      location.reload();
+    } catch (err) { showSignin(err.message, true); }
+    return true;
+  }
+
   async function init() {
     try { const t = localStorage.getItem("atlas.theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
     $("theme-label").textContent = currentTheme() === "dark" ? "Light mode" : "Dark mode";
@@ -2092,6 +2157,14 @@
     try {
       S.config = await api("/api/config");
       S.config.agent = "Atlas";
+      if (S.config.cloud) {
+        $("signout-item").hidden = false;
+        if (await acceptEmailLink()) return;
+        if (!S.config.signed_in) return showSignin();
+        document.querySelectorAll('[data-act="where"]').forEach((b) => (b.innerHTML = `${icon("monitor")}Cloud computer`));
+        $("upgrade-btn").style.display = "none";
+        document.querySelector(".plan-pill .sep").style.display = "none";
+      }
       setModel(defaultModel(), false);
       $("key-warning").hidden = S.config.has_key;
       if (S.config.demo) {
