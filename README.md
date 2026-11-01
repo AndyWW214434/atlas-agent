@@ -3,9 +3,6 @@
 Give Atlas a task. It makes a plan, searches and browses the web, runs code, and writes files on its own while you
 watch it work live, then hands you the results. Powered by Claude.
 
-**[▶ Try the live demo](https://andyww12345-atlas-demo.static.hf.space)** (read-only: open the example task in the
-sidebar to watch a recorded run play back step by step).
-
 ![Atlas building a website from one sentence: it plans, writes the code, checks the site in its own browser at desktop and phone sizes, and hands over the result](docs/atlas-demo.gif)
 
 *Sped up. **[▶ Watch the full run in real time](docs/atlas-demo.webm)** (about 2½ minutes, no sound): one sentence in,
@@ -105,8 +102,8 @@ activity, and E2B's Hobby credits are used per second while a sandbox runs (paus
 
 ## Publish a read-only demo
 
-The live demo above is a static site: no server, no AI calls, and no API key, so it costs nothing and visitors can't
-spend anything. To make your own from tasks you've run:
+A read-only demo is a static site: no server, no AI calls, and no API key, so it costs nothing and visitors can't
+spend anything. To make one from tasks you've run:
 
 ```bash
 .venv/bin/python deploy/build_static.py TASK_ID [TASK_ID ...]
