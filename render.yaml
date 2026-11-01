@@ -1,0 +1,28 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo. Render asks for each secret below.
+services:
+  - type: web
+    name: atlas
+    runtime: docker
+    plan: free            # sleeps after 15 minutes without visitors; the next visit takes about a minute to wake it
+    healthCheckPath: /api/config
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: E2B_API_KEY
+        sync: false
+      - key: ATLAS_VAULT_KEY
+        sync: false
+      - key: E2B_TEMPLATE
+        value: atlas-sandbox
+      - key: ATLAS_USER_DAILY_CREDITS
+        value: "100"
+      - key: ATLAS_GLOBAL_DAILY_CREDITS
+        value: "1000"
+      - key: ATLAS_MAX_SANDBOXES
+        value: "5"

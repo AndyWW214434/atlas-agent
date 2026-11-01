@@ -30,6 +30,7 @@
           <button class="pop-item" data-more="logins"><span class="ni" data-icon="lock"></span>Saved logins</button>
           <button class="pop-item" data-more="usage"><span class="ni" data-icon="chart"></span>Usage</button>
           <button class="pop-item" data-more="theme"><span class="ni" data-icon="moon"></span><span id="theme-label">Dark mode</span></button>
+          <button class="pop-item" data-more="signout" id="signout-item" hidden><span class="ni" data-icon="logout"></span>Sign out</button>
         </div>
       </div>
     </nav>
@@ -150,6 +151,20 @@
   </div>
 </div>
 
+<div class="signin" id="signin" hidden>
+  <form class="signin-card" id="signin-form">
+    <div class="signin-brand"><span class="hero-mark"></span><span class="hero-word">atlas</span></div>
+    <div class="signin-title" id="signin-title">Sign in</div>
+    <div class="signin-sub" id="signin-sub">Give Atlas a task and watch it work on its own cloud computer.</div>
+    <label>Email<input type="email" id="signin-email" autocomplete="email" required></label>
+    <label>Password<input type="password" id="signin-password" autocomplete="current-password" minlength="8" required></label>
+    <div class="signin-msg" id="signin-msg" hidden></div>
+    <button class="btn dark" type="submit" id="signin-submit">Sign in</button>
+    <button class="signin-switch" type="button" id="signin-switch">New here? Create an account</button>
+  </form>
+</div>
+
+<script src="/static/cloud.js"></script>
 <script src="/static/markdown.js"></script>
 <script src="/static/logos.js"></script>
 <script src="/static/app.js"></script>

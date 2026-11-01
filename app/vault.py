@@ -1,6 +1,7 @@
 """Saved logins, encrypted at rest.
 
 The encryption key lives in the OS keychain (macOS Keychain), falling back to a 0600 key file next to the vault.
+In cloud mode the key comes from the ATLAS_VAULT_KEY environment variable and each user's entries are stored per user.
 Secrets only leave this module to be typed into a page by the browser; the list function never returns them,
 and nothing here is sent to the model or written to a task's history.
 """
@@ -9,19 +10,21 @@ import json
 import os
 import re
 import uuid
-from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from . import store
 from .tools import ToolError
 
-DATA = Path(os.environ.get("ATLAS_DATA") or Path(__file__).resolve().parent.parent / "data")
-VAULT_FILE = DATA / "vault.json"
-KEY_FILE = DATA / ".vault.key"
+KEY_FILE = store.ROOT / ".vault.key"
 SERVICE, ACCOUNT = "atlas-agent", "vault-key"
 
 
 def _key() -> bytes:
+    if os.environ.get("ATLAS_VAULT_KEY"):
+        return os.environ["ATLAS_VAULT_KEY"].encode()
+    if store.CLOUD:
+        raise RuntimeError("Set ATLAS_VAULT_KEY to store logins in cloud mode.")
     try:
         import keyring
 
@@ -31,7 +34,6 @@ def _key() -> bytes:
             keyring.set_password(SERVICE, ACCOUNT, key)
         return key.encode()
     except Exception:
-        DATA.mkdir(parents=True, exist_ok=True)
         if not KEY_FILE.exists():
             fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as f:
@@ -40,19 +42,11 @@ def _key() -> bytes:
 
 
 def _read() -> list[dict]:
-    try:
-        return json.loads(VAULT_FILE.read_text())
-    except (OSError, ValueError):
-        return []
+    return store.load("vault.json", [])
 
 
 def _write(entries: list[dict]):
-    DATA.mkdir(parents=True, exist_ok=True)
-    tmp = VAULT_FILE.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(entries, f)
-    tmp.replace(VAULT_FILE)
+    store.save("vault.json", entries, private=True)
 
 
 def slug(label: str) -> str:

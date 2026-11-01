@@ -9,7 +9,6 @@ import json
 import time
 from pathlib import Path
 
-from . import vault
 from .tools import ToolError, resolve, truncate
 
 VIEWPORT = {"width": 1280, "height": 800}
@@ -95,7 +94,10 @@ class Browser:
     _browser = None
     _lock = asyncio.Lock()
 
-    def __init__(self, task_dir: Path, workspace: Path, on_frame=None):
+    def __init__(self, task_dir: Path, workspace: Path, on_frame=None, credentials=None):
+        if credentials is None:
+            from . import vault as credentials
+        self.credentials = credentials  # anything with labels() and get(label): the vault, or one login passed in
         self.state_file = task_dir / "browser_state.json"
         self.workspace = workspace
         self.downloads = workspace / "downloads"
@@ -404,8 +406,8 @@ class Browser:
                 label = args.get("credential") or ""
                 if not label:
                     raise ToolError("login needs 'credential', the name of a saved login. Saved logins: "
-                                    + (", ".join(vault.labels()) or "none yet - use ask_user with kind='credentials' to get one."))
-                await self._login(page, vault.get(label))
+                                    + (", ".join(self.credentials.labels()) or "none yet - use ask_user with kind='credentials' to get one."))
+                await self._login(page, self.credentials.get(label))
                 notes.append(f"Submitted the saved login '{label}'. Take a snapshot to see whether it worked or needs "
                              "verification (2-step codes, CAPTCHAs: use ask_user kind='handoff').")
             elif action == "switch_tab":

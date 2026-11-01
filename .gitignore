@@ -10,3 +10,6 @@ deploy/static/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Secrets
+.env

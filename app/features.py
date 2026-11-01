@@ -1,6 +1,5 @@
-"""Library, projects, automations, plugins and credits. Each is a small JSON-backed store under data/."""
+"""Library, projects, automations, plugins and credits. Each is a small JSON record per user (see store.py)."""
 
-import json
 import os
 import secrets
 import time
@@ -8,21 +7,8 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-DATA = Path(os.environ.get("ATLAS_DATA") or Path(__file__).resolve().parent.parent / "data")
-DATA.mkdir(parents=True, exist_ok=True)
-
-
-def _load(name: str, default):
-    try:
-        return json.loads((DATA / name).read_text())
-    except (OSError, ValueError):
-        return default
-
-
-def _save(name: str, obj):
-    tmp = DATA / (name + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=1))
-    tmp.replace(DATA / name)
+from . import store
+from .store import load as _load, save as _save
 
 
 def _id() -> str:
@@ -33,7 +19,6 @@ def _id() -> str:
 # Library: documents the user uploaded, reusable across tasks
 # ---------------------------------------------------------------------------
 
-LIB_DIR = DATA / "library"
 KINDS = {
     "text": {"pdf", "txt", "md", "doc", "docx", "rtf", "odt", "html", "htm", "json", "xml"},
     "slides": {"ppt", "pptx", "key", "odp"},
@@ -60,8 +45,7 @@ def library_add(filename: str, data: bytes) -> dict:
         if item["name"] == name and item["size"] == len(data):
             return item
     item = {"id": _id(), "name": name, "size": len(data), "kind": kind_of(name), "created": time.time()}
-    (LIB_DIR / item["id"]).mkdir(parents=True, exist_ok=True)
-    (LIB_DIR / item["id"] / name).write_bytes(data)
+    store.blob_put(f"library/{item['id']}/{name}", data)
     items.append(item)
     _save("library.json", items)
     return item
@@ -71,8 +55,7 @@ def library_path(item_id: str) -> Path | None:
     item = next((i for i in _load("library.json", []) if i["id"] == item_id), None)
     if not item:
         return None
-    path = LIB_DIR / item["id"] / item["name"]
-    return path if path.is_file() else None
+    return store.blob_path(f"library/{item['id']}/{item['name']}")
 
 
 def library_delete(item_id: str) -> bool:
@@ -80,11 +63,13 @@ def library_delete(item_id: str) -> bool:
     kept = [i for i in items if i["id"] != item_id]
     if len(kept) == len(items):
         return False
-    folder = LIB_DIR / item_id
+    folder = store.user_dir() / "library" / item_id
     for p in folder.glob("*"):
         p.unlink()
     if folder.exists():
         folder.rmdir()
+    if store.CLOUD:
+        store.blob_delete_tree(store.owner(), f"library/{item_id}")
     _save("library.json", kept)
     return True
 
@@ -204,6 +189,12 @@ def mcp_servers() -> list[dict]:
 
 CREDIT_USD = 0.01
 PLANS = {"free": ("Free", 300), "plus": ("Plus", 1000), "pro": ("Pro", 3000)}
+# Cloud mode: everyone gets the same daily allowance (paid for by whoever runs the server), and all users together
+# can't spend more than the global cap in a day. Plans and top-ups are switched off.
+USER_DAILY = float(os.environ.get("ATLAS_USER_DAILY_CREDITS") or 100)
+GLOBAL_DAILY = float(os.environ.get("ATLAS_GLOBAL_DAILY_CREDITS") or 1000)
+if store.CLOUD:
+    PLANS = {"free": ("Free", USER_DAILY)}
 # $ per million tokens: (input, output). Cache writes bill at 1.25x input, cache reads at 0.1x.
 PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0)}
 HAIKU_LONG = (0.50, 2.50)  # Haiku 5.5 prompts over 100K tokens
@@ -235,12 +226,26 @@ def credits_summary() -> dict:
         "used_week": round(sum(e["credits"] for e in st["ledger"] if e["ts"] >= week_ago), 1),
         "refresh_in_minutes": int((datetime.combine(now.date() + timedelta(days=1), datetime.min.time()) - now).total_seconds() // 60),
         "credit_usd": CREDIT_USD, "plans": {k: {"name": v[0], "daily": v[1]} for k, v in PLANS.items()},
+        "fixed": store.CLOUD, "server_busy": store.CLOUD and global_left() <= 0,
     }
+
+
+def _global_state() -> dict:
+    st = _load("spend.json", {}, scope=store.GLOBAL)
+    today = date.today().isoformat()
+    if st.get("day") != today:
+        st = {"day": today, "credits": 0.0}
+    return st
+
+
+def global_left() -> float:
+    return max(0.0, GLOBAL_DAILY - _global_state()["credits"]) if store.CLOUD else float("inf")
 
 
 def balance() -> float:
     st = _credits_state()
-    return max(0.0, PLANS.get(st["plan"], PLANS["free"])[1] - st["used_today"]) + st["bonus"]
+    mine = max(0.0, PLANS.get(st["plan"], PLANS["free"])[1] - st["used_today"]) + st["bonus"]
+    return min(mine, global_left())
 
 
 def cost_usd(model: str, usage) -> float:
@@ -268,6 +273,10 @@ def charge(task_id: str, title: str, model: str, usd: float) -> float:
                          "credits": round(credits, 3), "usd": round(usd, 5)})
     st["ledger"] = st["ledger"][-5000:]
     _save("credits.json", st)
+    if store.CLOUD:
+        g = _global_state()
+        g["credits"] += credits
+        _save("spend.json", g, scope=store.GLOBAL)
     return credits
 
 
@@ -288,6 +297,8 @@ def usage_by_task(days: int = 30) -> list[dict]:
 
 
 def set_plan(plan: str, add_bonus: int = 0):
+    if store.CLOUD:
+        raise PermissionError("Plans and top-ups are turned off on this server.")
     st = _credits_state()
     if plan in PLANS:
         st["plan"] = plan
@@ -415,6 +426,8 @@ def automation_by_token(token: str) -> dict | None:
 
 
 def user_name() -> str:
+    if store.CLOUD:
+        return store.current_email.get().split("@")[0] or "You"
     name = os.environ.get("ATLAS_USER_NAME")
     if name:
         return name
